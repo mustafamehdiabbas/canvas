@@ -147,13 +147,18 @@
       const text = await res.text();
       let data = null;
       try { data = text ? JSON.parse(text) : null; } catch { data = { error: text }; }
+      if (res.status === 401) {
+        throw new Error("You do not have access to webhook configuration. Ask an administrator to add your staff ID to the plugin's config-admin-staff-ids setting.");
+      }
       if (!res.ok) throw new Error((data && data.error) || res.statusText);
       return data;
     }
 
     function applyList(data) {
       if (Array.isArray(data && data.webhooks)) {
-        webhooks = data.webhooks;
+        // Lists never include secrets; keep the one this response just issued (create / regenerate).
+        const issued = data.webhook && data.webhook.secret ? data.webhook : null;
+        webhooks = data.webhooks.map((w) => (issued && w.id === issued.id ? issued : w));
         return true;
       }
       return false;
@@ -221,8 +226,8 @@
         <input type="url" class="js-url" placeholder="https://example.com/webhooks/canvas" value="${escapeAttr(wh.url || "")}">
         <label class="field">Webhook Secret</label>
         <div class="secret-row">
-          <input type="text" class="js-secret" readonly value="${escapeAttr(wh.secret || (wh.id ? "" : "Generated automatically when you save"))}">
-          <button type="button" class="btn js-copy" ${wh.secret ? "" : "disabled"}>Copy</button>
+          <input type="text" class="js-secret" readonly value="${escapeAttr(wh.secret || wh.secret_hint || (wh.id ? "" : "Generated automatically when you save"))}">
+          <button type="button" class="btn js-copy" ${wh.secret || wh.has_secret ? "" : "disabled"}>Copy</button>
           <button type="button" class="btn js-regen" ${wh.id ? "" : "disabled"}>Regenerate</button>
         </div>
         <div class="count js-count">${eventCount([...selected])}</div>
@@ -315,9 +320,20 @@
       card.querySelectorAll(".js-event").forEach((cb) => cb.addEventListener("change", syncChecks));
 
       card.querySelector(".js-copy").addEventListener("click", async () => {
-        const secret = card.querySelector(".js-secret").value;
+        const input = card.querySelector(".js-secret");
+        if (!wh.secret) {
+          // Lists do not include secrets; fetch this one only when asked for.
+          try {
+            const data = await api("webhooks/" + encodeURIComponent(wh.id) + "/secret");
+            wh.secret = data.secret;
+            input.value = data.secret;
+          } catch (err) {
+            flash("error", err.message);
+            return;
+          }
+        }
         try {
-          await navigator.clipboard.writeText(secret);
+          await navigator.clipboard.writeText(wh.secret);
           flash("ok", "Secret copied.");
         } catch {
           flash("error", "Could not copy automatically. Select the secret and copy it manually.");

@@ -107,8 +107,123 @@ def new_webhook_id() -> str:
     return uuid4().hex
 
 
-def is_https_url(url: str) -> bool:
-    return (url or "").strip().lower().startswith("https://")
+INTERNAL_HOST_ERROR = (
+    "URL must point to a public host. Loopback, private, and link-local addresses are not allowed."
+)
+_INTERNAL_HOST_SUFFIXES = (".localhost", ".local", ".internal")
+_HEX_DIGITS = frozenset("0123456789abcdef")
+
+
+def webhook_host(url: str) -> str:
+    """Return the lowercased host of a URL, without userinfo or port ("" when absent).
+
+    IPv6 literals keep their brackets. Implemented without ``urllib.parse``
+    (not allowed in the Canvas sandbox).
+    """
+    rest = (url or "").strip().split("://", 1)[-1]
+    authority = rest.split("/")[0].split("?")[0].split("#")[0]
+    host = authority.rsplit("@", 1)[-1].lower()
+    if host.startswith("["):
+        return host.split("]", 1)[0] + "]" if "]" in host else host
+    return host.split(":")[0]
+
+
+def _ipv4_to_int(text: str) -> int | None:
+    """Parse a standard dotted-quad IPv4 address; shorthand, octal, and hex forms return None."""
+    parts = text.split(".")
+    if len(parts) != 4:
+        return None
+    value = 0
+    for part in parts:
+        if not (part.isascii() and part.isdigit()) or (len(part) > 1 and part[0] == "0"):
+            return None
+        octet = int(part)
+        if octet > 255:
+            return None
+        value = (value << 8) | octet
+    return value
+
+
+def _hextets(text: str, *, allow_ipv4: bool) -> list[int] | None:
+    if not text:
+        return []
+    items = text.split(":")
+    groups: list[int] = []
+    for index, item in enumerate(items):
+        if allow_ipv4 and index == len(items) - 1 and "." in item:
+            ipv4 = _ipv4_to_int(item)
+            if ipv4 is None:
+                return None
+            groups.extend((ipv4 >> 16, ipv4 & 0xFFFF))
+        elif 1 <= len(item) <= 4 and set(item) <= _HEX_DIGITS:
+            groups.append(int(item, 16))
+        else:
+            return None
+    return groups
+
+
+def _ipv6_to_int(text: str) -> int | None:
+    """Parse a lowercase IPv6 literal (no brackets), including ``::`` and a trailing IPv4 part."""
+    head, separator, tail = text.partition("::")
+    if "::" in tail:
+        return None
+    left = _hextets(head, allow_ipv4=not separator)
+    right = _hextets(tail, allow_ipv4=True)
+    if left is None or right is None:
+        return None
+    if separator:
+        missing = 8 - len(left) - len(right)
+        if missing < 1:
+            return None
+        groups = [*left, *([0] * missing), *right]
+    elif len(left) == 8:
+        groups = left
+    else:
+        return None
+    value = 0
+    for group in groups:
+        value = (value << 16) | group
+    return value
+
+
+_BLOCKED_IPV4_NETWORKS = tuple(
+    (_ipv4_to_int(address), prefix)
+    for address, prefix in (
+        ("0.0.0.0", 8),  # "this" network
+        ("10.0.0.0", 8),  # private
+        ("100.64.0.0", 10),  # carrier-grade NAT
+        ("127.0.0.0", 8),  # loopback
+        ("169.254.0.0", 16),  # link-local, cloud metadata
+        ("172.16.0.0", 12),  # private
+        ("192.0.0.0", 24),  # IETF protocol assignments
+        ("192.168.0.0", 16),  # private
+        ("198.18.0.0", 15),  # benchmarking
+        ("224.0.0.0", 4),  # multicast
+        ("240.0.0.0", 4),  # reserved, broadcast
+    )
+)
+
+_BLOCKED_IPV6_NETWORKS = (
+    (0, 96),  # unspecified, loopback, IPv4-compatible
+    (0xFC00 << 112, 7),  # unique local
+    (0xFE80 << 112, 10),  # link-local
+    (0xFEC0 << 112, 10),  # site-local (deprecated)
+    (0xFF00 << 112, 8),  # multicast
+)
+
+
+def _in_networks(value: int, networks, bits: int) -> bool:
+    return any(value >> (bits - prefix) == network >> (bits - prefix) for network, prefix in networks)
+
+
+def _is_blocked_ipv4(value: int) -> bool:
+    return _in_networks(value, _BLOCKED_IPV4_NETWORKS, 32)
+
+
+def _is_blocked_ipv6(value: int) -> bool:
+    if value >> 32 == 0xFFFF:  # IPv4-mapped (::ffff:a.b.c.d)
+        return _is_blocked_ipv4(value & 0xFFFFFFFF)
+    return _in_networks(value, _BLOCKED_IPV6_NETWORKS, 128)
 
 
 def validate_webhook_url(url: str) -> tuple[str | None, str | None]:
@@ -116,9 +231,12 @@ def validate_webhook_url(url: str) -> tuple[str | None, str | None]:
     Validate a webhook URL.
 
     Returns (error, warning). ``error`` is set when the URL must be rejected.
-    Only ``https://`` URLs are accepted.
+    Only ``https://`` URLs to public hosts are accepted. Loopback, private,
+    link-local, and other internal addresses are refused so a webhook cannot
+    reach services inside the network Canvas delivers from. Hostnames that
+    merely *resolve* to internal addresses cannot be detected here.
 
-    Implemented without ``urllib.parse.urlparse`` (not allowed in the Canvas sandbox).
+    Implemented without ``urllib.parse`` / ``ipaddress`` (not allowed in the Canvas sandbox).
     """
     cleaned = (url or "").strip()
     if not cleaned:
@@ -128,18 +246,27 @@ def validate_webhook_url(url: str) -> tuple[str | None, str | None]:
         return "URL must use HTTPS. HTTP is not allowed.", None
     if not lowered.startswith("https://"):
         return "URL must start with https://.", None
-    rest = cleaned[8:]
-    host = rest.split("/")[0].split("?")[0].split("#")[0]
-    hostname = host.rsplit("@", 1)[-1]
-    if hostname.startswith("["):
-        # IPv6 literal: [::1]:port
-        if "]" not in hostname:
-            return "URL is not valid.", None
-        hostname = hostname.split("]", 1)[0] + "]"
-    else:
-        hostname = hostname.split(":")[0]
-    if not hostname or " " in hostname:
+    hostname = webhook_host(cleaned)
+    if not hostname or " " in hostname or not hostname.isascii():
         return "URL is not valid.", None
+    if hostname.startswith("["):
+        address = _ipv6_to_int(hostname[1:-1]) if hostname.endswith("]") else None
+        if address is None:
+            return "URL is not valid.", None
+        return (INTERNAL_HOST_ERROR, None) if _is_blocked_ipv6(address) else (None, None)
+    host = hostname.rstrip(".")
+    if not host:
+        return "URL is not valid.", None
+    if host == "localhost" or host.endswith(_INTERNAL_HOST_SUFFIXES):
+        return INTERNAL_HOST_ERROR, None
+    last_label = host.rsplit(".", 1)[-1]
+    if last_label.isdigit() or last_label.startswith("0x"):
+        # Numeric hosts are IP literals. Shorthand forms (127.1, 2130706433, 0x7f.1) are refused.
+        address = _ipv4_to_int(host)
+        if address is None:
+            return "URL is not valid.", None
+        if _is_blocked_ipv4(address):
+            return INTERNAL_HOST_ERROR, None
     return None, None
 
 
@@ -197,13 +324,14 @@ class AttributeHubBackend:
     """Durable store using Canvas AttributeHub custom attributes."""
 
     def load(self) -> list[dict] | None:
-        from canvas_sdk.v1.data.custom_attribute import AttributeHub
+        # Runs on every subscribed Canvas event, so read the one attribute in a single
+        # indexed query instead of loading the hub and prefetching all of its attributes.
+        from canvas_sdk.v1.data.custom_attribute import CustomAttribute
 
-        try:
-            hub = AttributeHub.objects.get(type=HUB_TYPE, id=HUB_ID)
-        except AttributeHub.DoesNotExist:
-            return None
-        value = hub.get_attribute(ATTR_NAME)
+        attribute = CustomAttribute.objects.filter(
+            hub__type=HUB_TYPE, hub__id=HUB_ID, name=ATTR_NAME
+        ).first()
+        value = attribute.value if attribute is not None else None
         if value is None:
             return None
         if isinstance(value, str):
@@ -321,13 +449,16 @@ class WebhookConfigStore:
         saved = self._save(items)
         return saved[index], warning
 
-    def delete(self, webhook_id: str) -> None:
+    def delete(self, webhook_id: str) -> WebhookConfig:
+        """Remove a webhook and return the removed config."""
         items = self._working_copy()
         index = self._resolve_index(items, webhook_id)
         if index is None:
             raise WebhookNotFoundError(f"Webhook {webhook_id!r} was not found.")
+        removed = items[index]
         remaining = [wh for i, wh in enumerate(items) if i != index]
         self._save(remaining)
+        return removed
 
     def regenerate_secret(self, webhook_id: str) -> WebhookConfig:
         items = self._working_copy()
@@ -417,7 +548,8 @@ class WebhookConfigStore:
         if not url:
             return []
         secret = (self.secrets.get("webhook-secret") or "").strip()
-        log.info(
+        # Runs on every subscribed event until a UI config is saved; keep it off the default level.
+        log.debug(
             "[Webhooks] Using legacy CLI webhook configuration (no UI webhooks saved yet)."
         )
         return [

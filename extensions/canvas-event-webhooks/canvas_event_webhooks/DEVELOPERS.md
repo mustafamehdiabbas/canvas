@@ -16,7 +16,7 @@ EventType fires
         → WebhookDispatcherBase._dispatch()
             → build envelope
             → for each matching webhook:
-                  skip if not https
+                  skip if the URL is not allowed (HTTPS, public host)
                   optionally enrich names/details
                   HMAC timestamp + body
                   HttpRequestEffect (async, retries)
@@ -42,9 +42,12 @@ canvas_event_webhooks/
 └── handlers/
     ├── base.py             payload, HMAC, HTTPS filter, dispatch
     ├── event_handlers.py   one class per catalog category
-    ├── config_api.py       SimpleAPI (staff session)
+    ├── config_api.py       SimpleAPI (staff session + config-admin-staff-ids allowlist)
     └── config_app.py       global Application → config UI
 tests/
+├── handlers/
+│   ├── test_config_api.py
+│   └── test_config_app.py
 ├── test_canvas_event_webhooks.py
 ├── test_config_store.py
 ├── test_webhook_routing.py
@@ -109,17 +112,20 @@ Path("canvas_event_webhooks/config_page.py").write_text(
 
 `config_api.py` serves `CONFIG_HTML`. Do not load the file at runtime.
 
-API routes (staff session, prefix `/config`):
+API routes (prefix `/config`). `authenticate()` requires a staff session. Every route except `GET /` also requires the caller's staff ID in `config-admin-staff-ids`, and denies everyone when that variable is unset. POST/PUT/DELETE return 415 unless `Content-Type` is `application/json`.
 
 | Method | Path | Role |
 |---|---|---|
-| GET | `/` | HTML page |
+| GET | `/` | HTML page (static, no data) |
 | GET | `/catalog` | Event categories for the UI |
-| GET/POST | `/webhooks` | List / create |
+| GET/POST | `/webhooks` | List (secrets masked) / create (returns the new secret once) |
 | PUT/DELETE | `/webhooks/<id>` | Update / delete |
-| POST | `/webhooks/<id>/regenerate` | New secret |
+| GET | `/webhooks/<id>/secret` | Reveal one secret (backs the **Copy** button) |
+| POST | `/webhooks/<id>/regenerate` | New secret (returned once) |
 | POST | `/webhooks/<id>/test` | Signed `webhook.test` |
 | POST | `/webhooks/import-legacy` | Persist CLI webhook |
+
+Every successful change, reveal, and test send goes through `_audit()`, which logs the acting staff ID, webhook ID, and destination host. Never add secrets or full URLs to that line.
 
 Persistence: AttributeHub `type=plugin_config`, `id=canvas_event_webhooks`, attribute `webhooks`. Namespace in the manifest: `canvas__event_webhooks` `read_write`.
 
@@ -136,7 +142,7 @@ X-Canvas-Timestamp: <unix>
 X-Canvas-Signature: t=<unix>,v1=<hex>
 ```
 
-`sign_body(secret, body, timestamp)` HMACs `f"{timestamp}.{body}"`. HTTPS is required in `validate_webhook_url` and skipped again at dispatch (`is_https_url`) so old HTTP configs cannot leak.
+`sign_body(secret, body, timestamp)` HMACs `f"{timestamp}.{body}"`. `validate_webhook_url` requires HTTPS to a public host. It parses IPv4/IPv6 literals by hand because `ipaddress` is not allowed in the sandbox. `_dispatch` runs it again, so configs saved before a rule change cannot leak.
 
 When adding payload fields, keep them additive. Receivers already depend on `event`, `occurred_at`, `target`, `context`.
 
@@ -147,19 +153,16 @@ When adding payload fields, keep them additive. Receivers already depend on `eve
 Use the existing `.venv` / `uv`. Do not create a second virtualenv.
 
 ```bash
-uv run pytest tests/test_canvas_event_webhooks.py \
-    tests/test_config_store.py \
-    tests/test_webhook_routing.py \
-    tests/test_patient_id.py \
-    tests/test_events_catalog.py \
-    tests/test_event_details.py -q
+uv run pytest -q
 ```
 
 Worth covering when you touch behavior:
 
 - HMAC of the **body that was sent** (details on vs off can differ)
 - `patient_id` never fabricated
-- HTTP URLs rejected and not dispatched
+- HTTP and internal-address URLs rejected and not dispatched
+- Config routes deny staff missing from `config-admin-staff-ids`, and everyone when it is unset
+- Secrets stay out of list responses and logs
 - Catalog names all exist on `EventType`
 - Details lookup failures still deliver the event
 
@@ -189,3 +192,5 @@ The validate warning about `WebhookDispatcherBase` not being in the manifest is 
 - **Regenerate `config_page.py`.** If you forget, the deployed UI will not match `static/config.html`.
 - **`data_access.read`.** If production lookups of `Patient` / `Staff` / target models start failing, declare them on the handler in the manifest.
 - **Legacy CLI.** `WebhookConfigStore` falls back to `webhook-url` only when AttributeHub has never been saved. First UI save wins forever after that.
+- **Hot path.** All 156 subscribed events run `_dispatch`, which loads the config (`AttributeHubBackend.load`, one indexed query) even when no webhook wants the event. Keep that load to a single query and per-event logging at `debug`. The plugin cache is database-backed at runtime, so caching the config does not save a round trip.
+- **Large columns in details.** When an extractor starts using a model with big text/JSON fields, add them to `_DEFERRED_FIELDS` in `event_details.py`. `test_deferred_fields_exist_on_sdk_models` checks the names against the real models.

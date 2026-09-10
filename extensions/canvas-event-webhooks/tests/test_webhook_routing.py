@@ -203,3 +203,13 @@ def test_secrets_are_not_written_to_logs(monkeypatch):
 def test_no_matching_webhooks_returns_empty():
     webhooks = [_wh("A", ["TASK_CREATED"], "s")]
     assert _handler(EventType.PATIENT_CREATED)._dispatch(webhooks=webhooks) == []
+
+
+def test_internal_destination_saved_before_url_rules_is_not_delivered():
+    webhooks = [
+        _wh("metadata", ["PATIENT_CREATED"], "s1", url="https://169.254.169.254/latest"),
+        _wh("secure", ["PATIENT_CREATED"], "s2"),
+    ]
+    effects = _http_effects(_handler()._dispatch(webhooks=webhooks))
+    assert len(effects) == 1
+    assert _data(effects[0])["url"] == "https://secure.example.com/hook"

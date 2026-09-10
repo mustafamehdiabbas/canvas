@@ -366,3 +366,71 @@ def test_handler_dispatches_its_event(handler_cls, event_type):
     assert body["source"] == "canvas"
     assert body["version"] == "1"
     assert body["id"]
+
+
+# ---------------------------------------------------------------------------
+# Payload envelope edge cases
+# ---------------------------------------------------------------------------
+
+def test_default_context_keeps_appointment_id_only():
+    """The appointment key survives the ID-only filter; appointment fields do not."""
+    ctx = {"appointment": {"id": "appt-1", "comment": "Patient reports chest pain"}}
+    handler = _make_handler(
+        AppointmentWebhookHandler,
+        EventType.APPOINTMENT_CREATED,
+        context=ctx,
+    )
+    body = _payload(handler.compute())
+
+    assert body["context"] == {"appointment_id": "appt-1"}
+
+
+class Appointment:
+    """Stands in for a Canvas model class passed as ``event.target.type``."""
+
+
+@pytest.mark.parametrize("target_type", [Appointment, "Appointment"])
+def test_target_type_reported_by_model_name(target_type):
+    """target.type is the model name whether Canvas passes a class or a string."""
+    handler = AppointmentWebhookHandler(
+        event=_make_event(EventType.APPOINTMENT_CREATED, target_type=target_type),
+        secrets={"webhook-url": WEBHOOK_URL, "webhook-secret": WEBHOOK_SECRET},
+    )
+    body = _payload(handler.compute())
+
+    assert body["target"] == {"id": "rec-abc-123", "type": "Appointment"}
+
+
+def test_unknown_event_type_is_named_by_number_and_not_delivered():
+    """An event type missing from the EventType enum is never routed to a webhook."""
+    handler = _make_handler(PatientWebhookHandler, 999_999)
+
+    assert handler._event_name() == "999999"
+    assert handler.compute() == []
+
+
+ENVELOPE_KEYS = {"id", "event", "occurred_at", "source", "version", "target", "context"}
+
+
+def test_default_envelope_keys_are_locked():
+    """Receivers depend on these keys, and anything added here goes out on every delivery."""
+    ctx = {
+        "patient": {"id": "pt-1", "first_name": "John"},
+        "note": {"uuid": "note-1", "body": "clinical text"},
+        "appointment": {"id": "appt-1", "comment": "free text"},
+        "state": "LKD",
+        "content_url": "https://phi.example.com/doc.pdf",
+    }
+    patient_body = _payload(
+        _make_handler(NoteWebhookHandler, EventType.NOTE_STATE_CHANGE_EVENT_CREATED, context=ctx).compute()
+    )
+    staff_body = _payload(
+        _make_handler(StaffWebhookHandler, EventType.STAFF_CREATED, context=ctx).compute()
+    )
+
+    safe_context = {"patient_id": "pt-1", "note_id": "note-1", "appointment_id": "appt-1", "state": "LKD"}
+    assert set(patient_body) == ENVELOPE_KEYS | {"patient_id"}
+    assert set(staff_body) == ENVELOPE_KEYS
+    assert set(patient_body["target"]) == {"id", "type"}
+    assert patient_body["context"] == safe_context
+    assert staff_body["context"] == safe_context

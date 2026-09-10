@@ -105,3 +105,12 @@ def test_category_keys_match_handlers():
 def test_event_label_uses_catalog():
     assert event_label("APPOINTMENT_CREATED") == "Appointment Created"
     assert event_label("UNKNOWN_EVENT_XYZ") == "Unknown Event Xyz"
+
+
+def test_event_type_names_rejects_unknown_category():
+    try:
+        event_type_names("not_a_category")
+    except KeyError as exc:
+        assert "not_a_category" in str(exc)
+    else:
+        raise AssertionError("expected KeyError for an unknown category")

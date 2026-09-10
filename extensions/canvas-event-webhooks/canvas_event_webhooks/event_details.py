@@ -128,10 +128,27 @@ def _compact(data: dict) -> dict:
     return out
 
 
+# Large text/JSON columns that no extractor reads. Loading records without them keeps
+# a details lookup from pulling a whole note body (or message/letter text) per event.
+_DEFERRED_FIELDS = {
+    "Note": ("body", "related_data", "billing_note"),
+    "Message": ("content",),
+    "Letter": ("content",),
+    "Patient": ("administrative_note", "clinical_note", "deceased_cause", "deceased_comment"),
+}
+
+
 def _target_instance(event):
     try:
         target = getattr(event, "target", None)
-        instance = getattr(target, "instance", None) if target is not None else None
+        if target is None:
+            return None
+        model = getattr(target, "type", None)
+        deferred = _DEFERRED_FIELDS.get(getattr(model, "__name__", ""))
+        if deferred:
+            instance = model.objects.filter(id=target.id).defer(*deferred).first()
+        else:
+            instance = getattr(target, "instance", None)
     except _SAFE_ERRORS:
         return None
     if _is_mock(instance):
@@ -233,6 +250,16 @@ def _load_actor(event) -> dict | None:
     return person_summary(person, role=role)
 
 
+def _related_patient(instance):
+    """The record's patient, loaded without large text columns when the FK column is present."""
+    patient_dbid = getattr(instance, "patient_id", None)
+    if patient_dbid is None:
+        return getattr(instance, "patient", None)
+    from canvas_sdk.v1.data.patient import Patient
+
+    return Patient.objects.filter(dbid=patient_dbid).defer(*_DEFERRED_FIELDS["Patient"]).first()
+
+
 def _load_patient(patient_id: str | None, instance) -> dict | None:
     if instance is not None:
         if _class_name(instance) == "Patient":
@@ -241,7 +268,7 @@ def _load_patient(patient_id: str | None, instance) -> dict | None:
                 return summary
         related = None
         try:
-            related = getattr(instance, "patient", None)
+            related = _related_patient(instance)
         except _SAFE_ERRORS:
             related = None
         summary = person_summary(related, role="patient")
@@ -253,7 +280,7 @@ def _load_patient(patient_id: str | None, instance) -> dict | None:
     try:
         from canvas_sdk.v1.data.patient import Patient
 
-        found = Patient.objects.filter(id=patient_id).first()
+        found = Patient.objects.filter(id=patient_id).defer(*_DEFERRED_FIELDS["Patient"]).first()
     except _SAFE_ERRORS:
         found = None
     return person_summary(found, role="patient")
@@ -514,13 +541,23 @@ def _from_care_team(instance) -> dict:
     }
 
 
+def _claim_note_id(instance) -> str | None:
+    """The claim note's external id, read via the FK column without loading the note row."""
+    note_dbid = getattr(instance, "note_id", None)
+    if note_dbid is None:
+        return None
+    from canvas_sdk.v1.data.note import Note
+
+    return _plain(Note.objects.filter(dbid=note_dbid).values_list("id", flat=True).first())
+
+
 def _from_claim(instance) -> dict:
     return {
         "record_type": "claim",
         "current_queue": _plain(
             getattr(instance, "current_queue", None) or getattr(instance, "queue", None)
         ),
-        "note_id": _plain(getattr(getattr(instance, "note", None), "id", None)),
+        "note_id": _claim_note_id(instance),
     }
 
 

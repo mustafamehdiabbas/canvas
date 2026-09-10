@@ -112,3 +112,9 @@ def test_staff_event_does_not_fabricate_patient_id():
     body = _payload(StaffWebhookHandler, EventType.STAFF_CREATED, {"staff": {"id": "st-9"}})
     assert "patient_id" not in body
     assert not is_patient_related("STAFF_CREATED")
+
+
+def test_extract_patient_id_ignores_non_dict_context():
+    event = _event(EventType.PATIENT_CREATED)
+    event.context = ["pt-123"]
+    assert extract_patient_id(event) is None

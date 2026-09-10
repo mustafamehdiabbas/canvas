@@ -1,6 +1,6 @@
 {
-    "sdk_version": "0.1.4",
-    "plugin_version": "0.4.3",
+    "sdk_version": "0.212.1",
+    "plugin_version": "0.5.0",
     "name": "canvas_event_webhooks",
     "description": "Forwards Canvas EHR events to up to three HTTPS webhooks as signed JSON. For integration engineers, practice operations / RevOps, and analytics teams who need appointments, tasks, billing, and clinical events outside the EHR.",
     "components": {
@@ -10,7 +10,7 @@
                 "description": "Forwards patient-record events to matching webhooks.",
                 "data_access": {
                     "event": "PATIENT_CREATED",
-                    "read": ["Patient", "Staff", "CanvasUser", "AttributeHub"],
+                    "read": ["Patient", "Staff", "CanvasUser", "AttributeHub", "CustomAttribute"],
                     "write": []
                 }
             },
@@ -19,7 +19,7 @@
                 "description": "Forwards appointment lifecycle events to matching webhooks.",
                 "data_access": {
                     "event": "APPOINTMENT_CREATED",
-                    "read": ["Patient", "Staff", "CanvasUser", "AttributeHub", "Appointment"],
+                    "read": ["Patient", "Staff", "CanvasUser", "AttributeHub", "CustomAttribute", "Appointment"],
                     "write": []
                 }
             },
@@ -28,7 +28,7 @@
                 "description": "Forwards note, note-state, and encounter events to matching webhooks.",
                 "data_access": {
                     "event": "NOTE_CREATED",
-                    "read": ["Patient", "Staff", "CanvasUser", "AttributeHub", "Note", "Encounter"],
+                    "read": ["Patient", "Staff", "CanvasUser", "AttributeHub", "CustomAttribute", "Note", "Encounter"],
                     "write": []
                 }
             },
@@ -37,7 +37,7 @@
                 "description": "Forwards clinical record events to matching webhooks.",
                 "data_access": {
                     "event": "CONDITION_CREATED",
-                    "read": ["Patient", "Staff", "CanvasUser", "AttributeHub", "Condition", "AllergyIntolerance", "Immunization", "Observation", "VitalSign"],
+                    "read": ["Patient", "Staff", "CanvasUser", "AttributeHub", "CustomAttribute", "Condition", "AllergyIntolerance", "Immunization", "Observation", "VitalSign"],
                     "write": []
                 }
             },
@@ -46,7 +46,7 @@
                 "description": "Forwards medication-list events to matching webhooks.",
                 "data_access": {
                     "event": "MEDICATION_LIST_ITEM_CREATED",
-                    "read": ["Patient", "Staff", "CanvasUser", "AttributeHub", "Medication"],
+                    "read": ["Patient", "Staff", "CanvasUser", "AttributeHub", "CustomAttribute", "Medication"],
                     "write": []
                 }
             },
@@ -55,7 +55,7 @@
                 "description": "Forwards the e-prescribing lifecycle to matching webhooks.",
                 "data_access": {
                     "event": "PRESCRIPTION_CREATED",
-                    "read": ["Patient", "Staff", "CanvasUser", "AttributeHub", "Prescription", "Medication"],
+                    "read": ["Patient", "Staff", "CanvasUser", "AttributeHub", "CustomAttribute", "Prescription", "Medication"],
                     "write": []
                 }
             },
@@ -64,7 +64,7 @@
                 "description": "Forwards lab, imaging, and referral-report events to matching webhooks.",
                 "data_access": {
                     "event": "LAB_ORDER_CREATED",
-                    "read": ["Patient", "Staff", "CanvasUser", "AttributeHub", "LabOrder", "LabReport", "ImagingOrder", "ImagingReport", "ReferralReport"],
+                    "read": ["Patient", "Staff", "CanvasUser", "AttributeHub", "CustomAttribute", "LabOrder", "LabReport", "ImagingOrder", "ImagingReport", "ReferralReport"],
                     "write": []
                 }
             },
@@ -73,7 +73,7 @@
                 "description": "Forwards task lifecycle events to matching webhooks.",
                 "data_access": {
                     "event": "TASK_CREATED",
-                    "read": ["Patient", "Staff", "CanvasUser", "AttributeHub", "Task"],
+                    "read": ["Patient", "Staff", "CanvasUser", "AttributeHub", "CustomAttribute", "Task"],
                     "write": []
                 }
             },
@@ -82,7 +82,7 @@
                 "description": "Forwards staff created/updated/activated/deactivated events to matching webhooks.",
                 "data_access": {
                     "event": "STAFF_CREATED",
-                    "read": ["Patient", "Staff", "CanvasUser", "AttributeHub"],
+                    "read": ["Patient", "Staff", "CanvasUser", "AttributeHub", "CustomAttribute"],
                     "write": []
                 }
             },
@@ -91,7 +91,7 @@
                 "description": "Forwards inbound document lifecycle events to matching webhooks.",
                 "data_access": {
                     "event": "DOCUMENT_RECEIVED",
-                    "read": ["Patient", "Staff", "CanvasUser", "AttributeHub", "DocumentReference"],
+                    "read": ["Patient", "Staff", "CanvasUser", "AttributeHub", "CustomAttribute", "DocumentReference"],
                     "write": []
                 }
             },
@@ -100,7 +100,7 @@
                 "description": "Forwards patient-provider message and letter events to matching webhooks.",
                 "data_access": {
                     "event": "MESSAGE_CREATED",
-                    "read": ["Patient", "Staff", "CanvasUser", "AttributeHub", "Message", "Letter"],
+                    "read": ["Patient", "Staff", "CanvasUser", "AttributeHub", "CustomAttribute", "Message", "Letter"],
                     "write": []
                 }
             },
@@ -109,7 +109,7 @@
                 "description": "Forwards care-team and patient-group events to matching webhooks.",
                 "data_access": {
                     "event": "CARE_TEAM_MEMBERSHIP_CREATED",
-                    "read": ["Patient", "Staff", "CanvasUser", "AttributeHub", "CareTeamMembership", "PatientGroup"],
+                    "read": ["Patient", "Staff", "CanvasUser", "AttributeHub", "CustomAttribute", "CareTeamMembership", "PatientGroup"],
                     "write": []
                 }
             },
@@ -118,13 +118,13 @@
                 "description": "Forwards billing, claim, coverage, and consent events to matching webhooks.",
                 "data_access": {
                     "event": "CLAIM_CREATED",
-                    "read": ["Patient", "Staff", "CanvasUser", "AttributeHub", "Claim", "Coverage", "Consent"],
+                    "read": ["Patient", "Staff", "CanvasUser", "AttributeHub", "CustomAttribute", "Claim", "Coverage", "Consent", "Note"],
                     "write": []
                 }
             },
             {
                 "class": "canvas_event_webhooks.handlers.config_api:WebhookConfigAPI",
-                "description": "Staff configuration API and UI for managing up to three webhooks."
+                "description": "Configuration API and UI for managing up to three webhooks, limited to staff listed in config-admin-staff-ids."
             }
         ],
         "commands": [],
@@ -142,6 +142,10 @@
         ]
     },
     "variables": [
+        {
+            "name": "config-admin-staff-ids",
+            "sensitive": false
+        },
         {
             "name": "webhook-url",
             "sensitive": true

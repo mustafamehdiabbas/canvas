@@ -14,3 +14,10 @@ version = "0.4.3"
 
 [tool.pytest.ini_options]
 python_files = ["*_tests.py", "test_*.py", "tests.py"]
+
+[tool.coverage.run]
+source = ["canvas_event_webhooks"]
+omit = ["tests/*", "*/tests/*"]
+
+[tool.coverage.report]
+omit = ["tests/*", "*/tests/*"]

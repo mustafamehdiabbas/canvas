@@ -57,7 +57,8 @@ If a webhook secret is configured the request also carries:
 
 Receivers should validate the signature and reject timestamps older than
 five minutes (replay protection). Each webhook is signed with **its own**
-secret. HTTP URLs are rejected; only HTTPS is delivered.
+secret. Only HTTPS URLs to public hosts are delivered; HTTP and internal
+addresses are skipped.
 """
 
 from __future__ import annotations
@@ -77,7 +78,7 @@ from logger import log
 from canvas_event_webhooks.config_store import (
     WebhookConfig,
     WebhookConfigStore,
-    is_https_url,
+    validate_webhook_url,
 )
 from canvas_event_webhooks.event_details import enrich_event
 from canvas_event_webhooks.events_catalog import is_patient_related
@@ -284,21 +285,20 @@ class WebhookDispatcherBase(BaseHandler):
             webhooks = [wh for wh in webhooks if wh.accepts(event_name)]
 
         if not webhooks:
-            log.info(
+            # Most Canvas events match no webhook; keep this off the default log level.
+            log.debug(
                 "[Webhooks] No matching webhooks for event=%s; dropping.",
                 event_name,
             )
             return []
 
-        details = None
-        if any(wh.include_details for wh in webhooks):
-            details = enrich_event(self.event, event_name, payload.get("patient_id"))
-
-        effects: list[Effect] = []
+        deliverable: list[WebhookConfig] = []
         for webhook in webhooks:
-            if not is_https_url(webhook.url):
+            url_error, _warning = validate_webhook_url(webhook.url)
+            if url_error:
+                # Also stops configs saved before the current URL rules.
                 log.warning(
-                    "[Webhooks] Skipping non-HTTPS webhook=%s event=%s",
+                    "[Webhooks] Skipping webhook with a disallowed URL webhook=%s event=%s",
                     webhook.name,
                     event_name,
                 )
@@ -310,6 +310,15 @@ class WebhookDispatcherBase(BaseHandler):
                     event_name,
                 )
                 continue
+            deliverable.append(webhook)
+
+        details = None
+        # Detail lookups cost several queries; only run them for webhooks that will be sent.
+        if any(wh.include_details for wh in deliverable):
+            details = enrich_event(self.event, event_name, payload.get("patient_id"))
+
+        effects: list[Effect] = []
+        for webhook in deliverable:
             log.info(
                 "[Webhooks] Delivery started webhook=%s event=%s retries=%s",
                 webhook.name,

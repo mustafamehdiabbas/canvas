@@ -54,6 +54,21 @@ canvas install canvas_event_webhooks --host <your-instance>
 
 Bump `plugin_version` in `CANVAS_MANIFEST.json` before each reinstall.
 
+### Choose who can configure webhooks (required)
+
+Webhook destinations receive patient data, so only staff listed in `config-admin-staff-ids` can use the configuration app. Set it to a comma-separated list of staff IDs (the 32-character Staff key; dashes and letter case don't matter). **Until it is set, nobody can configure webhooks.** The app shows an access message instead.
+
+```bash
+canvas set-secrets canvas_event_webhooks \
+    config-admin-staff-ids=57f3668ea9f84f3980e772ea8451af38,a1b2c3d4e5f60718293a4b5c6d7e8f90
+```
+
+To find someone's staff ID, have them open **Event Webhooks** once, then look for the `[Webhooks] … denying webhook configuration access for staff=<id>` line in `canvas logs --host <your-instance>`.
+
+Every change made in the app is logged with the acting staff ID (`[Webhooks] Config created by staff=…`), without secrets or full URLs.
+
+### Legacy CLI webhook
+
 Optional, only if you have not saved anything in the UI yet:
 
 ```bash
@@ -68,7 +83,7 @@ After the first UI save, those CLI secrets are ignored for delivery.
 
 ## Configure in Canvas
 
-Open the Canvas apps grid (the 3×3 icon in the top bar) and choose **Event Webhooks**. It is a global app, not inside a patient chart.
+Open the Canvas apps grid (the 3×3 icon in the top bar) and choose **Event Webhooks**. It is a global app, not inside a patient chart. Only staff listed in `config-admin-staff-ids` can load or change the configuration (see [How to install](#how-to-install)).
 
 ![Open Event Webhooks from the Canvas apps menu](assets/webhook_access_location.png)
 
@@ -77,8 +92,8 @@ Each card:
 | Field | Notes |
 |---|---|
 | Name | Your label, max 80 characters |
-| URL | `https://` only. HTTP is rejected and never delivered |
-| Secret | Generated on save (`canvaswebhook_` + 32 bytes of entropy). Copy it. Regenerating means updating your receiver |
+| URL | `https://` to a public host only. HTTP, `localhost`, `.local` / `.internal` names, and loopback, private, or link-local IPs are rejected and never delivered. International domain names must use the `xn--` form |
+| Secret | Generated on save (`canvaswebhook_` + 32 bytes of entropy). Shown in full right after saving or regenerating; after that only the last 4 characters are shown and **Copy** fetches the full value. Regenerating means updating your receiver |
 | Enabled | Off = this destination gets nothing |
 | Include names and details | Off = IDs only. On = description, actor, patient name/MRN, major record fields |
 | Events | Select All, or per category / per event |
@@ -382,10 +397,12 @@ Every name is checked against `canvas_sdk.events.EventType`. These do **not** ex
 
 ## Security (what the plugin actually does)
 
-- HTTPS only
+- HTTPS to public hosts only. Loopback, private, link-local, and cloud-metadata addresses are refused when saving and again at delivery. Hostnames that *resolve* to internal addresses cannot be detected by the plugin
 - HMAC per webhook, timestamp bound into the signature
-- Secrets generated server-side, not logged
-- Config UI requires a logged-in **staff** session
+- Secrets generated server-side, never logged, and left out of list responses (fetched only when you click **Copy**)
+- Configuration requires a logged-in staff session **and** a staff ID listed in `config-admin-staff-ids`. Unset means nobody has access
+- Every configuration change, secret reveal, and test send is logged with the acting staff ID
+- Configuration requests that change data must be `application/json`, so cross-site form posts are refused
 - Default payload is IDs; names are opt-in per webhook
 
 Replay protection (the 5-minute `t` window) must be implemented **on your receiver**. Canvas cannot reject a POST that someone later copies to your URL.
