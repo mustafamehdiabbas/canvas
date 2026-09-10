@@ -413,6 +413,7 @@ def test_create_saves_webhook_and_returns_new_secret_once(backend, hub_backend_c
     [
         pytest.param("http://example.com/hook", "URL must use HTTPS. HTTP is not allowed.", id="http"),
         pytest.param("https://169.254.169.254/latest/meta-data", INTERNAL_HOST_ERROR, id="metadata"),
+        pytest.param("https://127.0.0.1\\@example.com/hook", "URL is not valid.", id="backslash-host"),
     ],
 )
 def test_create_rejects_disallowed_url(url, expected_error, backend, hub_backend_cls):

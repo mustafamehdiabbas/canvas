@@ -39,7 +39,13 @@ Without this plugin, adding or re-pointing a destination is a code change and a 
    ```bash
    canvas install canvas_event_webhooks --host <your-instance>
    ```
-2. Open Canvas. In the apps grid (the 3×3 icon in the top bar), click **Event Webhooks**. It is a global app, not inside a patient chart.
+2. Choose who can configure webhooks. Only staff listed in `config-admin-staff-ids` can use the app, and **until it is set, nobody can**. Set it to a comma-separated list of staff IDs:
+   ```bash
+   canvas set-secrets canvas_event_webhooks --host <your-instance> \
+       config-admin-staff-ids=<staff-id>,<staff-id>
+   ```
+   The [plugin README](canvas_event_webhooks/README.md#choose-who-can-configure-webhooks-required) explains how to find a staff ID.
+3. Open Canvas. In the apps grid (the 3×3 icon in the top bar), click **Event Webhooks**. It is a global app, not inside a patient chart.
 
 Bump `plugin_version` in `canvas_event_webhooks/CANVAS_MANIFEST.json` before you reinstall, or Canvas may keep the old package.
 
@@ -57,6 +63,7 @@ After the first UI save, those CLI secrets are ignored for delivery.
 
 | Setting | Where | Notes |
 |---|---|---|
+| `config-admin-staff-ids` | Plugin secret, required | Comma-separated staff IDs allowed to use the configuration app. Unset means nobody can |
 | Destination name, HTTPS URL, enabled flag | Event Webhooks UI | HTTP URLs are rejected and never delivered |
 | Signing secret | Generated on save in the UI | Copy it into your receiver. Regenerating means updating the receiver |
 | Event list | Event Webhooks UI | Select All, or pick by category / event. Max 3 destinations |

@@ -13,7 +13,7 @@ Covers:
 from __future__ import annotations
 
 import json
-from unittest.mock import MagicMock, Mock
+from unittest.mock import Mock
 
 import pytest
 from canvas_sdk.effects import EffectType

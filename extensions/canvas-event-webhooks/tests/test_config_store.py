@@ -288,6 +288,8 @@ LEGACY_SECRETS = {
         "https://[2606:4700:4700::1111]:8443/hook",
         "https://[::ffff:8.8.8.8]/hook",
         "https://[2606:4700:4700:0:0:0:0:1111]/hook",
+        "https://[2001:4860:4860::8888]/hook",
+        "https://my_service.example.com/hook",
     ],
 )
 def test_public_destinations_are_accepted(url):
@@ -321,6 +323,10 @@ def test_public_destinations_are_accepted(url):
         "https://[ff02::1]/hook",
         "https://[::ffff:127.0.0.1]/hook",
         "https://[::ffff:a9fe:a9fe]/hook",
+        "https://[64:ff9b::a9fe:a9fe]/hook",
+        "https://[64:ff9b:1::a9fe:a9fe]/hook",
+        "https://[2002:7f00:1::]/hook",
+        "https://[2001:0:4136:e378:8000:63bf:3fff:fdd2]/hook",
     ],
 )
 def test_internal_destinations_are_rejected(url):
@@ -344,6 +350,14 @@ def test_internal_destinations_are_rejected(url):
         "https://[1:2:3:4:5:6:7:8::]/hook",
         "https://[fe80::1%25eth0]/hook",
         "https://[::ffff:1.2.3]/hook",
+        # HTTP clients end the host at a backslash; these would connect to the internal address.
+        "https://127.0.0.1\\@example.com/hook",
+        "https://169.254.169.254\\@example.com/",
+        "https://localhost\\.example.com/hook",
+        "https://127.0.0.1\t@example.com/hook",
+        "https://exam\x00ple.com/hook",
+        "https://example.com/ho ok",
+        "https://exa%6dple.com/hook",
     ],
 )
 def test_ambiguous_or_malformed_hosts_are_rejected(url):

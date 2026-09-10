@@ -92,7 +92,7 @@ Each card:
 | Field | Notes |
 |---|---|
 | Name | Your label, max 80 characters |
-| URL | `https://` to a public host only. HTTP, `localhost`, `.local` / `.internal` names, and loopback, private, or link-local IPs are rejected and never delivered. International domain names must use the `xn--` form |
+| URL | `https://` to a public host only. HTTP, `localhost`, `.local` / `.internal` names, and loopback, private, or link-local IPs (including IPv6 forms that wrap an IPv4 address) are rejected and never delivered. URLs containing spaces or backslashes are rejected. International domain names must use the `xn--` form |
 | Secret | Generated on save (`canvaswebhook_` + 32 bytes of entropy). Shown in full right after saving or regenerating; after that only the last 4 characters are shown and **Copy** fetches the full value. Regenerating means updating your receiver |
 | Enabled | Off = this destination gets nothing |
 | Include names and details | Off = IDs only. On = description, actor, patient name/MRN, major record fields |

@@ -142,7 +142,7 @@ X-Canvas-Timestamp: <unix>
 X-Canvas-Signature: t=<unix>,v1=<hex>
 ```
 
-`sign_body(secret, body, timestamp)` HMACs `f"{timestamp}.{body}"`. `validate_webhook_url` requires HTTPS to a public host. It parses IPv4/IPv6 literals by hand because `ipaddress` is not allowed in the sandbox. `_dispatch` runs it again, so configs saved before a rule change cannot leak.
+`sign_body(secret, body, timestamp)` HMACs `f"{timestamp}.{body}"`. `validate_webhook_url` requires HTTPS to a public host. It parses IPv4/IPv6 literals by hand because `ipaddress` is not allowed in the sandbox. It also rejects backslashes, whitespace, and host characters outside `[a-z0-9._-]`: HTTP clients end the host at a backslash, so `https://127.0.0.1\@example.com` would otherwise pass as `example.com` and connect to `127.0.0.1`. `_dispatch` runs it again, so configs saved before a rule change cannot leak.
 
 When adding payload fields, keep them additive. Receivers already depend on `event`, `occurred_at`, `target`, `context`.
 

@@ -112,6 +112,7 @@ INTERNAL_HOST_ERROR = (
 )
 _INTERNAL_HOST_SUFFIXES = (".localhost", ".local", ".internal")
 _HEX_DIGITS = frozenset("0123456789abcdef")
+_HOSTNAME_CHARS = frozenset("abcdefghijklmnopqrstuvwxyz0123456789.-_")
 
 
 def webhook_host(url: str) -> str:
@@ -205,6 +206,10 @@ _BLOCKED_IPV4_NETWORKS = tuple(
 
 _BLOCKED_IPV6_NETWORKS = (
     (0, 96),  # unspecified, loopback, IPv4-compatible
+    (0x0064FF9B << 96, 96),  # NAT64 well-known prefix (embeds IPv4)
+    (0x0064FF9B0001 << 80, 48),  # NAT64 local-use prefix (embeds IPv4)
+    (0x2001 << 112, 32),  # Teredo (embeds IPv4)
+    (0x2002 << 112, 16),  # 6to4 (embeds IPv4)
     (0xFC00 << 112, 7),  # unique local
     (0xFE80 << 112, 10),  # link-local
     (0xFEC0 << 112, 10),  # site-local (deprecated)
@@ -246,6 +251,10 @@ def validate_webhook_url(url: str) -> tuple[str | None, str | None]:
         return "URL must use HTTPS. HTTP is not allowed.", None
     if not lowered.startswith("https://"):
         return "URL must start with https://.", None
+    if any(ch == "\\" or ch.isspace() or not ch.isprintable() for ch in cleaned):
+        # HTTP clients end the host at a backslash, so "https://127.0.0.1\@example.com"
+        # would pass the host check below as example.com and then connect to 127.0.0.1.
+        return "URL is not valid.", None
     hostname = webhook_host(cleaned)
     if not hostname or " " in hostname or not hostname.isascii():
         return "URL is not valid.", None
@@ -255,7 +264,7 @@ def validate_webhook_url(url: str) -> tuple[str | None, str | None]:
             return "URL is not valid.", None
         return (INTERNAL_HOST_ERROR, None) if _is_blocked_ipv6(address) else (None, None)
     host = hostname.rstrip(".")
-    if not host:
+    if not host or not set(host) <= _HOSTNAME_CHARS:
         return "URL is not valid.", None
     if host == "localhost" or host.endswith(_INTERNAL_HOST_SUFFIXES):
         return INTERNAL_HOST_ERROR, None
